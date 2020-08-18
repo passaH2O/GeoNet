@@ -1,14 +1,15 @@
 import numpy as np
+import time
 from scipy import ndimage
 from time import clock
 from pygeonet_rasterio import *
 from pygeonet_vectorio import *
 from pygeonet_plot import *
-
+from numba import jit
 
 def Channel_Head_Definition(skeletonFromFlowAndCurvatureArray, geodesicDistanceArray):
     # Locating end points
-    print 'Locating skeleton end points'
+    print("Locating skeleton end points")
     structure = np.ones((3, 3))
     skeletonLabeledArray, skeletonNumConnectedComponentsList =\
                           ndimage.label(skeletonFromFlowAndCurvatureArray,
@@ -21,33 +22,44 @@ def Channel_Head_Definition(skeletonFromFlowAndCurvatureArray, geodesicDistanceA
       correspond to small isolated convergent areas. These elements will be
       excluded from the search of end points.
     """
-    print 'Counting the number of elements of each connected component'
+    print("Counting the number of elements of each connected component")
     lbls = np.arange(1, skeletonNumConnectedComponentsList+1)
+    
     skeletonLabeledArrayNumtuple = ndimage.labeled_comprehension(skeletonFromFlowAndCurvatureArray,\
                                                                  skeletonLabeledArray,\
                                                                  lbls,np.count_nonzero,\
                                                                  int,0)
     skeletonNumElementsSortedList = np.sort(skeletonLabeledArrayNumtuple)
+    #histarray,skeletonNumElementsHistogramX=np.histogram(\
+    #    skeletonNumElementsSortedList[0:len(skeletonNumElementsSortedList)-1],
+    #    int(np.floor(np.sqrt(len(skeletonNumElementsSortedList)))))
+    
     histarray,skeletonNumElementsHistogramX=np.histogram(\
-        skeletonNumElementsSortedList[0:len(skeletonNumElementsSortedList)-1],
-        int(np.floor(np.sqrt(len(skeletonNumElementsSortedList)))))
-    if defaults.doPlot == 1:
-        raster_plot(skeletonLabeledArray, 'Skeleton Labeled Array elements Array')
+        skeletonNumElementsSortedList,bins='auto')
+    print(f'Max: {np.max(skeletonNumElementsHistogramX)}')
+    print(f'Median: {np.median(skeletonNumElementsHistogramX)}')
+    test_thresh = np.where(skeletonNumElementsHistogramX>np.quantile(skeletonNumElementsHistogramX,0.3))[0]
+    
+    #if defaults.doPlot == 1:
+    #    raster_plot(skeletonLabeledArray, 'Skeleton Labeled Array elements Array')
     # Create skeleton gridded array
     skeleton_label_set, label_indices = np.unique(skeletonLabeledArray, return_inverse=True)
     skeletonNumElementsGriddedArray = np.array([skeletonLabeledArrayNumtuple[x-1] for x in skeleton_label_set])[label_indices].reshape(skeletonLabeledArray.shape)
-    if defaults.doPlot == 1:
-        raster_plot(skeletonNumElementsGriddedArray,
-                    'Skeleton Num elements Array')
+    #if defaults.doPlot == 1:
+    #    raster_plot(skeletonNumElementsGriddedArray,
+    #                'Skeleton Num elements Array')
+
     # Elements smaller than skeletonNumElementsThreshold are not considered in the
     # skeletonEndPointsList detection
-    skeletonNumElementsThreshold = skeletonNumElementsHistogramX[2]
-    print 'skeletonNumElementsThreshold',str(skeletonNumElementsThreshold)
+    
+    skeletonNumElementsThreshold = skeletonNumElementsHistogramX[test_thresh[0]]
+    print(f'skeletonNumElementsThreshold: {str(skeletonNumElementsThreshold)}')
+    
     # Scan the array for finding the channel heads
-    print 'Continuing to locate skeleton endpoints'
     skeletonEndPointsList = []
     nrows = skeletonFromFlowAndCurvatureArray.shape[0]
     ncols = skeletonFromFlowAndCurvatureArray.shape[1]
+    search_box = defaults.endPointSearchBoxSize    
     for i in range(nrows):
         for j in range(ncols):
             if skeletonLabeledArray[i,j]!=0 \
@@ -57,12 +69,13 @@ def Channel_Head_Definition(skeletonFromFlowAndCurvatureArray, geodesicDistanceA
                 py = nrows-i
                 mx = j-1
                 px = ncols-j
-                xMinus = np.min([defaults.endPointSearchBoxSize, mx])
-                xPlus  = np.min([defaults.endPointSearchBoxSize, px])
-                yMinus = np.min([defaults.endPointSearchBoxSize, my])
-                yPlus  = np.min([defaults.endPointSearchBoxSize, py])
+                xMinus = np.min([search_box, mx])
+                xPlus  = np.min([search_box, px])
+                yMinus = np.min([search_box, my])
+                yPlus  = np.min([search_box, py])
                 # Extract the geodesic distances geodesicDistanceArray for pixels within the search box
                 searchGeodesicDistanceBox = geodesicDistanceArray[i-yMinus:i+yPlus, j-xMinus:j+xPlus]
+                
                 # Extract the skeleton labels for pixels within the search box
                 searchLabeledSkeletonBox = skeletonLabeledArray[i-yMinus:i+yPlus, j-xMinus:j+xPlus]
                 # Look in the search box for skeleton points with the same label
@@ -73,6 +86,11 @@ def Channel_Head_Definition(skeletonFromFlowAndCurvatureArray, geodesicDistanceA
                 v3 = np.where(np.any(v1==True,axis=0))
                 if len(v3[0])==0:
                     skeletonEndPointsList.append([i,j])
+        if i%500==0:
+            print(f'Iterations Remaining: {nrows-i}')
+    #skeletonEndPointsList = skeleton_endPoint_loop(nrows,ncols,skeletonLabeledArray,skeletonNumElementsGriddedArray,skeletonNumElementsThreshold,geodesicDistanceArray,search_box)
+
+
     # For loop ends here
     skeletonEndPointsListArray = np.transpose(skeletonEndPointsList)
     if defaults.doPlot == 1:
@@ -101,14 +119,14 @@ def main():
     outfilepath = Parameters.geonetResultsDir
     demName = Parameters.demFileName.split('.')[0]
     skeleton_filename = demName+'_skeleton.tif'
-    skeletonFromFlowAndCurvatureArray = read_geotif_generic(outfilepath, skeleton_filename)
+    skeletonFromFlowAndCurvatureArray = read_geotif_generic(outfilepath, skeleton_filename)[0]
     geodesic_filename = demName+'_geodesicDistance.tif'
-    geodesicDistanceArray = read_geotif_generic(outfilepath, geodesic_filename)
+    geodesicDistanceArray = read_geotif_generic(outfilepath, geodesic_filename)[0]
     Channel_Head_Definition(skeletonFromFlowAndCurvatureArray, geodesicDistanceArray)
 
 
 if __name__ == '__main__':
-    t0 = clock()
+    t0 = time.perf_counter()
     main()
-    t1 = clock()
-    print "time taken to complete channel head definition:", t1-t0, " seconds"
+    t1 = time.perf_counter()
+    print(f'time taken to complete channel head definition: {t1-t0} seconds')
