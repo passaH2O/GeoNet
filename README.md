@@ -1,4 +1,12 @@
 # GeoNet
+Geomorphic feature extraction from high resolution topography data. 
+
+When using GeoNet, please cite the following papers:
+
+Passalacqua, P., T. Do Trung, E. Foufoula-Georgiou, G. Sapiro, W. E. Dietrich (2010), A geometric framework for channel network extraction from lidar: Nonlinear diffusion and geodesic paths, Journal of Geophysical Research Earth Surface, 115, F01002, doi:10.1029/2009JF001254.
+
+Sangireddy, H., R. A. Carothers, C.P. Stark, P. Passalacqua (2016), Controls of climate, topography, vegetation, and lithology on drainage density extracted from high resolution topography data, Journal of Hydrology, 537, 271-282, doi:10.1016/j.jhydrol.2016.02.051.
+
 
 ## Environment
 ``` conda env create -f GeoNetEnv.yml ```
